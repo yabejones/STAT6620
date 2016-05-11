@@ -1,0 +1,114 @@
+---
+title: "STAT6620 HW3 Part 2"
+subtitle: "Application of Naive Bayes to HouseVotes84"
+author: "Abe-Jones, Yumiko"
+date: "April 17, 2016"
+output: html_document
+---
+```{r}
+# Steps needed:
+# 1. Get data (already in DTM like format)
+# 2. Divide dataset into training and test populations (random assignment)
+# 3. Create training and test sets and labels
+# 4. Run naiveBayes
+# 5. Use CrossTables to analyze results
+```
+### Step 1: Get the data (pre-provided under e1071 library)
+```{r}
+library(e1071)
+data(HouseVotes84, package = "mlbench")
+votes <- HouseVotes84
+```
+### Step 2: Data exploration and preparation
+```{r}
+str(votes)
+table(votes$Class)
+```
+#### Data Exploration:
+The dataset consists of 435 observations and 17 variables, of which the first indicates
+the party affiliation of each congressperson, and the remaining 16 indicate their Yes/No
+votes on 16 occasions. That is all the information supplied to us. In 1984, there were 267 Democrats and 168 Republicans in the United States House of Representatives.
+
+#### Data Preparation:
+The plan is to randomize the dataset, and to split into a training and test population.
+Finally we will create training and test labels. We'll use ~70% for the training set, so using 
+```{r}
+library(dplyr)
+set.seed(1111)
+training <- sample_frac(votes,0.7)
+test <- setdiff(votes,training)
+training_set <- training[,2:17]
+test_set <- test[,2:17]
+training_labels <- training[,1]
+test_labels <- test[,1]
+```
+### Step 3: Train the data
+```{r}
+classifier <- naiveBayes(training_set, training_labels)
+```
+### Step 4: Evaluate the model
+```{r}
+pred <- predict(classifier,test_set)
+pred[1:10]
+library(gmodels)
+CrossTable(pred, test_labels,
+           prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
+           dnn = c('predicted', 'actual'))
+```
+Accuracy = (49 + 34) / 94 = 88.3%
+
+### Step 5: Improve the model
+We'll try a couple of tactics:
+1) Increase the percentage of observations in the training set to 80%
+2) Increase the Laplace estimator to 1
+
+#### 1) Increase percentage in training to 80%
+```{r}
+set.seed(555)
+second_tr <- sample_frac(votes, 0.8)
+second_test <- setdiff(votes,second_tr)
+second_tr_set <- second_tr[,2:17]
+second_test_set <- second_test[,2:17]
+second_tr_labels <- second_tr[,1]
+second_test_labels <- second_test[,1]
+second_class <- naiveBayes(second_tr_set, second_tr_labels)
+second_predic <- predict(second_class,second_test_set)
+second_predic[1:10]
+CrossTable(second_predic, second_test_labels,
+           prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
+           dnn = c('predicted', 'actual'))
+```
+Accuracy = (31 + 16) / 60 = 78.3%. Ew, that is bad. Maybe we're overfitting, or there aren't enough observations?
+
+#### 2) Increase Laplace estimator to 1 (go back to 70%)
+```{r}
+set.seed(11)
+tr_3 <- sample_frac(votes, 0.7)
+test_3 <- setdiff(votes,tr_3)
+trset_3 <- tr_3[,2:17]
+testset_3 <- test_3[,2:17]
+trlabels_3 <- tr_3[,1]
+testlabels_3 <- test_3[,1]
+class_no_3 <- naiveBayes(trset_3, trlabels_3, laplace=1)
+predictionthird <- predict(class_no_3,testset_3)
+predictionthird[1:10]
+CrossTable(predictionthird, testlabels_3,
+           prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
+           dnn = c('predicted', 'actual'))
+```
+Accuracy = (50 + 30) / 91 = 87.9% 
+
+The Laplace estimator did not improve the model. 
+
+### Discussion/ Issues
+I found this activity confounding in several aspects:
+
+* I couldn't figure out what to do with the NA's. In the example code on the e1071 website, they don't deal with it, and I looked up the documentation and it seemed to indicate that the default for "na.action" is to ignore it for calculation purposes. But I never was sure that it was OK to ignore.
+    
+* The count of observations in the test set never seemed to represent 30% or 20% of 435. This may be related to not dealing with the NA's. 
+    
+* Changing the seed value gave me wildly varying results. I'm guessing that there just is not enough data to overcome random chance.
+    
+* None of my attempts ever resulted in an accuracy rate that exceeded 90%, which is what the example code on the e1071 website gets. 
+
+Given the above, about the only thing I can say is that I need to better understand how these algorithms work. I tried to read the documentation on the Naive Bayes Classifier but I couldn't understand what the e1071 example code was doing.

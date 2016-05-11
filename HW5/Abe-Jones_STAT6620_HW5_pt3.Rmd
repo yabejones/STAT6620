@@ -1,0 +1,169 @@
+---
+title: "Regression Tree Analysis of Red Wine Data"
+subtitle: "STAT6620, Spring 2016, HW # 5"
+author: "Abe-Jones, Yumiko"
+date: "May 1, 2016"
+output: html_document
+---
+***
+The objective of this analytical exercise is to build a model that mimics experts' ratings of wine, and to identify the key factors that help wines earn higher ratings. We compare two algorithms, CART and M5'.
+
+***
+
+### I: Get the data
+```{r}
+wine <- read.csv("redwines.csv")
+```
+
+### II: Explore and prepare the data for modeling
+
+#### Explore the data
+```{r}
+str(wine)
+```
+We see that the dataset has 1599 rows and 12 numerical variables, of which 11 are explanatory. The target variable is *quality*, which is an integer. How are these quality scores distributed? Let's do a histogram:
+
+```{r}
+hist(wine$quality)
+summary(wine$quality)
+```
+
+...so we see that these scores are distributed normally between 3 and 8, with the greatest between 5 and 6, closer to 5, but with more scores above the hump than below.
+
+The summary gives us a mean quality score of 5.636.
+
+Note: I checked out what a boxplot of this would look like, and it doesn't seem to reflect the summary. I think the mean is at 6.0. I thought that was a bit weird.
+```{r}
+boxplot(wine$quality)
+```
+
+#### Prepare the data for modeling
+We'll now divide up the wine data into a training and a test dataset for subsequent modeling in the third step. We'll use dplyr's handy sample_frac method.
+```{r}
+library(dplyr)
+set.seed(99)
+wine_train <- sample_frac(wine, .85)
+wine_test <- setdiff(wine,wine_train)
+str(wine_train)
+str(wine_test)
+```
+This gives us a training dataset consisting of 1,359 observations, and a testing dataset consisting of 175 observations.
+
+### III: Train the model
+Using the CART algorithm implemented in the **rpart** package, we run and take a look at the tree:
+```{r}
+library(rpart)
+m.rpart <- rpart(quality ~ ., data=wine_train)
+m.rpart
+```
+We see that our model tree sports nine terminal nodes. In agreement with the white wine data, alcohol appears to be the most important predictor of wine quality as it is the first split made. We may then look at additional features about the tree:
+
+```{r}
+summary(m.rpart)
+```
+
+Since the text-based visualization of the tree is difficult to grasp, we use the **rpart.plot** package to get a better look:
+```{r}
+library(rpart.plot)
+rpart.plot(m.rpart, digits=3, fallen.leaves = TRUE,
+           type = 2, extra = 101) 
+
+```
+```{r echo= FALSE}
+## "digits"" = sigfigs; fallen.leaves = TRUE aligns leaf nodes;
+## type = 1 - 4 controls where the text etc. are placed.
+## extra = 101: display number and percentage of observations in node.
+```
+The model came up with nine predicted quality groupings as follows (right to left on tree diagram):
+
+Score | Predictor variable values
+------|------------------------------------------------------------------------
+6.65  | alcohol >= 11.6, sulphate >= 0.645
+6.11  | 11.6 > alcohol >= 10.5, sulphate >= 0.645
+6.39  | alcohol >= 10.5, sulphate < 0.645, volatile < 0.315
+5.65  | alcohol >= 10.5, sulphate < 0.645, 1.02 >= volatile >= 0.315
+4.00  | alcohol >= 10.5, sulphate < 0.645, volatile >= 1.02
+5.92  | alcohol < 10.5, volatile < 0.335 
+5.54  | alcohol < 10.5, volatile >= 0.335, sulphate >= 0.535, total.su < 46.5
+5.26  | alcohol < 10.5, volatile >= 0.335, sulphate >= 0.535, total.su >= 46.5
+5.06  | alcohol < 10.5, volatile >= 0.335, sulphate < 0.535
+
+### IV: Evaluate model performance
+Using the predict() function, evaluate model's performance. Create prediction vector p.rpart, and compare its values to actual *quality* values from wine_test:
+```{r}
+p.rpart <- predict(m.rpart, wine_test)
+summary(p.rpart)
+summary(wine_test$quality)
+```
+It appears that the actual values are much more spread out than the predicted values. Look at the *correlation* between the predicted and actual quality scores to see how they relate to one another:
+```{r}
+cor(p.rpart, wine_test$quality)
+```
+...and at 0.627, it appears that the scores are not particularly related to one another, although it could be worse.
+
+#### Evaluate the model using Mean Absolute Value (MAE)
+MAE is the average error, or absolute difference between actual and predicted values. 
+```{r echo=FALSE}
+MAE <- function(actual, predicted) {
+      mean(abs(actual - predicted))
+}
+MAE(p.rpart, wine_test$quality)
+```
+The average difference between the predicted and actual values is about 0.515.
+
+Is this good or bad? We compare the performance of our model with a "model" that predicts every wine's quality score to be the mean score in the training dataset:
+```{r}
+mean(wine_train$quality)
+```
+The mean score of our training dataset is 5.63429.
+Now calculate the MAE between the actual scores vs. a score of 5.63429 for every single sample:
+```{r}
+MAE(5.63429,wine_test$quality)
+```
+We see that the MAE of our model is about 0.22 less than simply using a guess of the mean score for every sample. 
+
+### V. Improve the model.
+Try the M5' algorighm (RWeka package) to see if we get a better result. Create and examine the new model using the same training dataset.
+```{r}
+library(RWeka)
+m.m5p <- M5P(quality ~ ., data=wine_train)
+m.m5p
+summary(m.m5p)
+```
+We notice that the first split occurs on alcohol in this model as well, so it remains the key factor in determining the wine quality rating. 
+
+Proceed to apply the model to test data; calculate correlation and MAE for comparison with rpart model:
+```{r}
+p.m5p <- predict(m.m5p, wine_test)
+summary(p.m5p)
+cor(p.m5p, wine_test$quality)
+MAE(wine_test$quality, p.m5p)
+```
+MAE obtained with the M5' algorithm (0.500) is about 0.015 lower than the MAE obtained with the original rpart algorithm (0.515). The correlation values is a few points higher than the CART result as well, but isn't as dramatically better as the MAE is.
+
+***
+
+### Conclusion
+As we can see from the summary below, the M5' algorithm barely barely squeaked out a win over CART with a lower Mean Absolute Error and a higher correlation between predicted and actual scores, and appears to be a slightly more favorable choice for predicting expert ratings for this set of wine data. I didn't really see any good alternative measures between the two models that might allow for comparison. 
+
+The CART model did provide a MSE value of MSE=0.6484489, and the M5 model provided a RMSE value of 0.5945. If we convert the CART MSE to an RMSE value, we get RMSE = 0.8053. This result indicates that the M5 model fits the data better than the CART model.
+
+Both models agree on alcohol as the key factor in determining wine quality. 
+```{r echo=FALSE}
+Algorithm <- c("CART","M5'")
+MAE <- c(0.515,0.500)
+Correlation <- c(0.627,0.656)
+data.frame(Algorithm, MAE, Correlation)
+```
+
+
+
+```{r echo=FALSE}
+# Cubist junk to ignore--just playing around; it's supposed to be an algorithm similar to the M5' model tree algorithm and was created by Max Kuhn. I ran out of time but may revisit some time.
+# library(Cubist)
+# m.cub <- cubist(x=wine_train[,-12],y = wine_train$quality,committees = 5)
+# m.cub
+#summary(m.cub)
+# dotplot(m.cub, what="splits")
+```
+

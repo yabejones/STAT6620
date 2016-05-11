@@ -1,0 +1,168 @@
+---
+title: "STAT6620 Homework 3, Part 1"
+subtitle: "(Naive Bayes Spam Detector)"
+author: "Abe-Jones, Yumiko (ua8242)"
+date: "April 13, 2016"
+output: html_document
+---
+
+```{r }
+# Loading all the libraries
+library(tm)
+library(e1071)
+library(gmodels)
+library(SnowballC)
+library(wordcloud)
+```
+
+### Part I: Get the Data
+As we know, the data are provided to us from the textbook website, so let's load'er up.
+
+```{r }
+# read the sms data into the sms data frame
+sms_raw <- read.csv("sms_spam.csv", stringsAsFactors = FALSE)
+
+```
+
+### Part II: Explore and Prep the Data
+#### Part IIA: Exploration
+```{r }
+# examine the structure of the sms data
+str(sms_raw)
+
+# convert spam/ham to factor.
+sms_raw$type <- factor(sms_raw$type)
+
+# examine the type variable more carefully
+str(sms_raw$type)
+table(sms_raw$type)
+```
+...so the data are arranged in two variables: (1) the label (e.g. identifying whether the message is ham or spam, with "1" indicating "ham" and "2" indicating "spam") and (2) the actual content of the message. It appears that there are 4,812 legitimate ("ham") messages and 747 spam messages in this file.
+
+#### Part IIB: Data cleaning
+We move onto creating a "bag of words" (corpus) to be used in our text mining analysis, and cleaning it up:
+```{r}
+# build a corpus using the text mining (tm) package
+sms_corpus <- VCorpus(VectorSource(sms_raw$text))
+
+# examine the sms corpus
+print(sms_corpus)
+inspect(sms_corpus[1])
+as.character(sms_corpus[[1]])
+```
+
+Now we move on to cleaning up the corpus:
+```{r}
+# clean up the corpus using tm_map()
+sms_corpus_clean <- tm_map(sms_corpus, content_transformer(tolower)) # convert to lower case
+sms_corpus_clean <- tm_map(sms_corpus_clean, removeNumbers) # remove numbers
+sms_corpus_clean <- tm_map(sms_corpus_clean, removeWords, stopwords()) # remove stop words
+sms_corpus_clean <- tm_map(sms_corpus_clean, removePunctuation) # remove punctuation
+
+# more cleaning using SnowballC package.
+sms_corpus_clean <- tm_map(sms_corpus_clean, stemDocument) # strip words down to their stems
+sms_corpus_clean <- tm_map(sms_corpus_clean, stripWhitespace) # eliminate unneeded whitespace
+
+# create a document term sparse matrix
+sms_dtm <- DocumentTermMatrix(sms_corpus_clean)
+```
+
+#### Part IIC: Create training and test datasets
+The final part of data preparation is to partition the data into training and test datasets to get ready for the modeling.
+
+```{r}
+# creating training and test datasets
+sms_dtm_train <- sms_dtm[1:4169, ]
+sms_dtm_test  <- sms_dtm[4170:5559, ]
+
+# also save the labels
+sms_train_labels <- sms_raw[1:4169, ]$type
+sms_test_labels  <- sms_raw[4170:5559, ]$type
+
+# check that the proportion of spam is similar
+prop.table(table(sms_train_labels))
+prop.table(table(sms_test_labels))
+```
+
+Now we use word cloud visualization to get a feel for the overall difference in the kinds of words that are in the ham group vs the spam group:
+```{r}
+# word cloud visualization
+library(wordcloud)
+wordcloud(sms_corpus_clean, min.freq = 50, random.order = FALSE)
+
+# subset the training data into spam and ham groups
+spam <- subset(sms_raw, type == "spam")
+ham  <- subset(sms_raw, type == "ham")
+
+wordcloud(spam$text, max.words = 40, scale = c(3, 0.5))
+wordcloud(ham$text, max.words = 40, scale = c(3, 0.5))
+
+sms_dtm_freq_train <- removeSparseTerms(sms_dtm_train, 0.999)
+sms_dtm_freq_train
+
+# save frequently-appearing terms to a character vector
+sms_freq_words <- findFreqTerms(sms_dtm_train, 5)
+str(sms_freq_words)
+
+# create DTMs with only the frequent terms
+sms_dtm_freq_train <- sms_dtm_train[ , sms_freq_words]
+sms_dtm_freq_test <- sms_dtm_test[ , sms_freq_words]
+
+# convert counts to a factor
+convert_counts <- function(x) {
+  x <- ifelse(x > 0, "Yes", "No")
+}
+
+# apply() convert_counts() to columns of train/test data
+sms_train <- apply(sms_dtm_freq_train, MARGIN = 2, convert_counts)
+sms_test  <- apply(sms_dtm_freq_test, MARGIN = 2, convert_counts)
+```
+
+Before we move along, let's take a look at what this last step produced:
+```{r}
+sms_train[1:5,1:10]
+```
+So the DTM has been converted into a bunch of columns, one column per word, with an indication as to whether or not that word occurred in each of the messages. 
+
+### Part III: Data Modeling
+This involves simply applying the naiveBayes function from the e1071 package to our dataset:
+```{r}
+sms_classifier <- naiveBayes(sms_train, sms_train_labels)
+```
+### Part IV: Evaluating Model Performance
+We now need to apply the model to the test dataset, and evaluate how accurately the model categorizes messages to be ham or spam.
+```{r}
+# run the predictor
+sms_test_pred <- predict(sms_classifier, sms_test)
+# summarize the results in a table
+CrossTable(sms_test_pred, sms_test_labels,
+           prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
+           dnn = c('predicted', 'actual'))
+```
+The accuracy rate for the model is (1201 + 153) / 1390 = 97.4%, which is really good. However we can always try to do better.
+
+### Part V: Improving Model Performance
+Create a better predictor by setting the Laplace estimator to 1 and re-running the algorithm: 
+```{r}
+sms_classifier2 <- naiveBayes(sms_train, sms_train_labels, laplace = 1)
+sms_test_pred2 <- predict(sms_classifier2, sms_test)
+CrossTable(sms_test_pred2, sms_test_labels,
+           prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
+           dnn = c('predicted', 'actual'))
+```
+The accuracy for this rendition of the model is (1202 + 155) / 1390, which is 97.6%. That's a 0.2% increase in accuracy.
+
+### Comparison of Predictions vs. Actuals
+Below, we line up the first 60 sets of the original and improved predictions, alongside the actual "spam" vs "ham" indications:
+
+```{r}
+pred1 <- sms_test_pred[1:60]
+pred2 <- sms_test_pred2[1:60]
+actuals <- sms_test_labels[1:60]
+p1name <- "Original"
+p2name <- "Improved"
+actname <- "Actual"
+df <- data.frame(pred1,pred2,actuals)
+df
+```
+We see that there are differences between the two predictions vs the actuals in rows 53 and 59.
