@@ -1,9 +1,9 @@
 ---
 title: "Classification Using Decision Trees & Rules"
-subtitle: "STAT6620, Spring 2016, HW #4, part 1 (tree-based analysis of credit data"
 author: "Abe-Jones, Yumiko"
 date: "April 24, 2016"
-output: html_document
+output: word_document
+subtitle: 'STAT6620, Spring 2016, HW #4, part 1 (tree-based analysis of credit data'
 ---
 Note: The only thing I changed from the provided code was that I used **dplyr** to partition the dataset for modeling, so the percentages won't be exactly the same as those from the book.
 
@@ -131,4 +131,34 @@ CrossTable(credit_test$default, credit_cost_pred2,
            prop.chisq = FALSE, prop.c = FALSE, prop.r = FALSE,
            dnn = c('actual default', 'predicted default'))
 ```
+This model with adjustments to the cost matrix yields a 70% accuracy rate. 
 
+## Classification using RWeka
+
+Just saw the addition of RWeka to HW#4 and chose the J48 method:
+```{r}
+library(RWeka)
+model_j48 <- J48(default ~ ., data=credit_train)
+summary(model_j48)
+predict_j48 <- predict(model_j48, credit_test)
+
+# Take a look at some of the predictions:
+predict_j48[1:20]
+
+# Break out the results:
+CrossTable(credit_test$default, predict_j48,
+           prop.chisq = FALSE, prop.c = FALSE, prop.r = FALSE,
+           dnn = c('actual default', 'predicted default'))
+```
+Result: Accuracy = 78%. 
+
+## Summary of Results
+
+Algorithm      | Accuracy 
+---------------|----------
+C50            |79%
+Boosted x10    |81%
+w/ Cost Matrix |65%
+J48 (Weka)     |78%
+
+The boosted C50 method produced the most accurate predictions based on the training and test datasets used. 
