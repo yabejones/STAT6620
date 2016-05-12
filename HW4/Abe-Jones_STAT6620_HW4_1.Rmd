@@ -1,0 +1,134 @@
+---
+title: "Classification Using Decision Trees & Rules"
+subtitle: "STAT6620, Spring 2016, HW #4, part 1 (tree-based analysis of credit data"
+author: "Abe-Jones, Yumiko"
+date: "April 24, 2016"
+output: html_document
+---
+Note: The only thing I changed from the provided code was that I used **dplyr** to partition the dataset for modeling, so the percentages won't be exactly the same as those from the book.
+
+Note2: This RMarkdown includes the detailed view of all trees, but I saved the HTML version without the detailed trees. 
+
+## Part I: Tree-based analysis of *credit* dataset
+The objective of this exercise is to analyze credit data in order to identify risky credit profiles.
+
+### I: Get the data.
+```{r}
+credit <- read.csv("credit.csv")
+```
+### II: Explore and prepare the data for analysis.
+```{r}
+# look at all the variables and their types
+str(credit)
+```
+Note that the response variable is *default*, which is categorical (Yes or No). We proceed to looking at a couple of variables of interest, checkings and savings account balances, which we suspect are significant predictors of credit risk.
+```{r}
+# look at checking and savings account balances per level
+table(credit$checking_balance)
+table(credit$savings_balance)
+
+# look at two characteristics of the loan: duration and amount
+summary(credit$months_loan_duration)
+summary(credit$amount)
+
+# look at the class variable, e.g. relative frequencies of defaulted loans
+table(credit$default)
+
+```
+Randomly partition the data into training and test sets to prepare for model training.
+```{r}
+# create a random sample for training and test data
+# use set.seed to use the same random number sequence as the tutorial
+set.seed(123)
+# using dplyr because I want the practice
+library(dplyr)
+credit_train <- sample_frac(credit,0.9)
+credit_test <- setdiff(credit,credit_train)
+
+# check the proportion of class variable
+prop.table(table(credit_train$default))
+prop.table(table(credit_test$default))
+```
+### III. Train the model.
+```{r}
+# build the simplest decision tree
+library(C50)
+credit_model <- C5.0(credit_train[-17], credit_train$default)
+
+# display simple facts about the tree
+credit_model
+
+# display detailed information about the tree
+summary(credit_model)
+```
+### IV. Evaluate model.
+```{r}
+# create a factor vector of predictions on test data
+credit_pred <- predict(credit_model, credit_test)
+
+# cross tabulation of predicted versus actual classes
+library(gmodels)
+CrossTable(credit_test$default, credit_pred,
+           prop.chisq = FALSE, prop.c = FALSE, prop.r = FALSE,
+           dnn = c('actual default', 'predicted default'))
+```
+Results so far:
+Accuracy = (TP + TN) / (TP + FP + FN + TN) = 79 / 100 = 79%.
+
+### V. Improve model.
+
+#### Boosting the accuracy of decision trees.
+```{r}
+# boosted decision tree with 10 trials
+credit_boost10 <- C5.0(credit_train[-17], credit_train$default,
+                       trials = 10)
+credit_boost10
+summary(credit_boost10)
+
+credit_boost_pred10 <- predict(credit_boost10, credit_test)
+CrossTable(credit_test$default, credit_boost_pred10,
+           prop.chisq = FALSE, prop.c = FALSE, prop.r = FALSE,
+           dnn = c('actual default', 'predicted default'))
+```
+Result: Accuracy = 81 / 100 = 81%. 
+
+#### Adding a steeper cost to some types of errors than others.
+```{r}
+# create dimensions for a cost matrix
+matrix_dimensions <- list(c("no", "yes"), c("no", "yes"))
+names(matrix_dimensions) <- c("predicted", "actual")
+matrix_dimensions
+
+# build the matrix
+error_cost <- matrix(c(0, 1, 4, 0), nrow = 2, dimnames = matrix_dimensions)
+error_cost
+
+# apply the cost matrix to the tree
+credit_cost <- C5.0(credit_train[-17], credit_train$default,
+                    costs = error_cost)
+credit_cost_pred <- predict(credit_cost, credit_test)
+
+CrossTable(credit_test$default, credit_cost_pred,
+           prop.chisq = FALSE, prop.c = FALSE, prop.r = FALSE,
+           dnn = c('actual default', 'predicted default'))
+```
+Result: Accuracy = 65 / 100 = 65%. Strictly speaking, performance is worse.
+
+Discussion: 
+Despite the loss of accuracy, the bank may choose to adopt this model over the more accuract prior models, depending on the relative costs of "good" and "bad" loans. The error cost made false negatives 4 times costlier than false positives, since defaulted loans are far costlier to the bank than lost opportunities represented by good loans.
+
+I notice in the results that there are almost 8 times as many false positives than false negatives (31 vs 4). If the cost of a bad loan truly is 4 times that of a good loan that is never made, then the model seems to overcorrect at a rate almost twice that is needed. The bank may want to adjust its cost model. Through random guessing I got a result of 3.5 as the cost to assign to false negatives, that results in 4 times as many false positives as false negatives. See below for details.
+```{r}
+error_cost2 <- matrix(c(0, 1, 3.5, 0), nrow = 2, dimnames = matrix_dimensions)
+error_cost2
+
+# apply the cost matrix to the tree
+credit_cost2 <- C5.0(credit_train[-17], credit_train$default,
+                    costs = error_cost2)
+credit_cost_pred2 <- predict(credit_cost2, credit_test)
+
+CrossTable(credit_test$default, credit_cost_pred2,
+           prop.chisq = FALSE, prop.c = FALSE, prop.r = FALSE,
+           dnn = c('actual default', 'predicted default'))
+```
+
