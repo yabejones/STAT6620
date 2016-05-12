@@ -1,0 +1,91 @@
+---
+title: "Classification Using Decision Trees & Rules"
+subtitle: "STAT6620, Spring 2016, HW #4, part 2 (rule-based analysis of mushroom data)"
+author: "Abe-Jones, Yumiko"
+date: "April 24, 2016"
+output: html_document
+---
+
+### Part I: Get the data.
+```{r}
+mushrooms <- read.csv("mushrooms.csv", stringsAsFactors = TRUE)
+```
+### Part II: Explore and prep the data for modeling.
+```{r}
+# examine the structure of the data frame
+str(mushrooms)
+
+# drop the veil_type feature
+mushrooms$veil_type <- NULL
+
+# examine the class distribution
+table(mushrooms$type)
+```
+Looks like almost half the mushrooms are poisonous, so we better come up with a good model. Time to partition the data into training and test sets. Again I will use dplyr.
+```{r}
+set.seed(123)
+library(dplyr)
+mushrooms_train <- sample_frac(mushrooms, .8)
+mushrooms_test <- setdiff(mushrooms, mushrooms_train)
+```
+
+### Part III. Train the model.
+```{r}
+library(RWeka)
+# train OneR() on the data
+mushroom_1R <- OneR(type ~ ., data = mushrooms_train)
+```
+
+### Part IV: Evaluate the model.
+```{r}
+mushroom_1R
+summary(mushroom_1R)
+
+mushroom_pred <- predict(mushroom_1R, mushrooms_test)
+
+# cross tabulation of predicted versus actual classes
+library(gmodels)
+CrossTable(mushrooms_test$type, mushroom_pred,
+           prop.chisq = FALSE, prop.c = FALSE, prop.r = FALSE,
+           dnn = c('actual default', 'predicted default'))
+```
+Results: Accuracy = (754 + 845) / 1625 = 98.4% accurate. This is excellent, unless you happened to eat one of the mushrooms falling into the 1.6% of false negatives (predicted edible, turned out poisonous), in which case you'd be having a pretty bad day. 
+
+It is pretty impressive however, that we got >98% accuracy from a 1R model, based purely on odor. 
+
+### Part V: Improve the model.
+
+#### RIPPER algorithm. 
+```{r}
+mushroom_JRip <- JRip(type ~ ., data = mushrooms_train)
+mushroom_JRip
+summary(mushroom_JRip)
+
+mushroom_pred <- predict(mushroom_JRip, mushrooms_test)
+
+# cross tabulation of predicted versus actual classes
+library(gmodels)
+CrossTable(mushrooms_test$type, mushroom_pred,
+           prop.chisq = FALSE, prop.c = FALSE, prop.r = FALSE,
+           dnn = c('actual default', 'predicted default'))
+```
+Results: Accuracy = 100%! Interesting how the model systematically peels off all the poisonous varieties via a series of rules, and the rest are all edible.
+
+#### C5.0 Decision tree application to mushrooms data. (Thank you! I guess this is the answer to my question.)
+```{r}
+library(C50)
+mushroom_c5rules <- C5.0(type ~ odor + gill_size, data = mushrooms_train, rules = TRUE)
+mushroom_c5rules
+summary(mushroom_c5rules)
+
+mushroom_pred <- predict(mushroom_c5rules, mushrooms_test)
+
+# cross tabulation of predicted versus actual classes
+library(gmodels)
+CrossTable(mushrooms_test$type, mushroom_pred,
+           prop.chisq = FALSE, prop.c = FALSE, prop.r = FALSE,
+           dnn = c('actual default', 'predicted default'))
+```
+Results: The results are exactly like the 1R results, with 26 false negatives and a 98.4% error rate. This is not surprising since it appears that the only splitting criterion was odor. 
+
+What I gain from this is that tree-based methods lack the refinement ability of rule-based methods in that once a split is made, if you have very small numbers of things that are "different" these cannot be gathered together into a subsequent group, but are "stranded" in their branches. I guess that is what the author meant about conquering and re-conquering on page 159. Thank you for including this example.
